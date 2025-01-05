@@ -1,3 +1,5 @@
+from collections import defaultdict
+import json
 from typing import List
 from dotenv import load_dotenv
 from langchain_community.tools.tavily_search import TavilySearchResults
@@ -5,7 +7,7 @@ from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
 from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, AIMessage
 from langgraph.prebuilt import ToolInvocation, ToolExecutor
 from chains import parser
-from schemas import AnswerQuestion
+from schemas import AnswerQuestion, Reflection
 
 load_dotenv()
 
@@ -23,14 +25,27 @@ def execute_tools(state: List[BaseMessage]) -> List[ToolMessage]:
 
     for parsed_call in parsed_tool_calls:
         for query in parsed_call["args"]["search_queries"]:
-            tool_invocation.append(ToolInvocation(
-                tool = "tavily_search_results_json",
-                tool_input=query,
-            ))
+            tool_invocations.append(
+                ToolInvocation(
+                    tool = "tavily_search_results_json",
+                    tool_input=query,
+            )
+        )
             ids.append(parsed_call["id"])
 
     outputs = tool_executor.batch(tool_invocations)
-    pass
+    
+    # Map each output to its coresponding ID and tool input
+    outputs_map = defaultdict(dict)
+    for id_, output, invocation in zip(ids, outputs, tool_invocations):
+        outputs_map[id_][invocation.tool_input] = output
+
+    # Convert the mapped outputs to ToolMessage objects
+    tool_messages = []
+    for id_, mapped_output in outputs_map.items():
+        tool_messages.append(ToolMessage(content=json.dumps(mapped_output), tool_call_id=id_))
+    
+    return tool_messages
 
 if __name__ == "__main__":
     print("Tool Executor Enter")
